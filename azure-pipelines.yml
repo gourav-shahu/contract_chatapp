@@ -1,0 +1,89 @@
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  imageTag: '$(Build.BuildId)'
+  # Set these pipeline variables in Azure DevOps or replace with literal values
+  # ACR_NAME: yourACRName
+  # RESOURCE_GROUP: yourResourceGroup
+  # APP_SERVICE_PLAN: yourAppServicePlan
+  # WEBAPP_NAME: yourWebAppName
+  # VITE_API_URL: https://your-frontend-url
+
+stages:
+  - stage: BuildAndPush
+    displayName: Build and push Docker images
+    jobs:
+      - job: Build
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: self
+
+          - task: Docker@2
+            displayName: Build and push backend image to ACR
+            inputs:
+              command: buildAndPush
+              containerRegistry: 'ACRServiceConnection' # Replace with your service connection name
+              repository: '$(ACR_NAME).azurecr.io/contract-chat-backend'
+              dockerfile: 'backend/Dockerfile'
+              buildContext: 'backend'
+              tags: |
+                $(imageTag)
+
+          - task: Docker@2
+            displayName: Build and push frontend image to ACR
+            inputs:
+              command: buildAndPush
+              containerRegistry: 'ACRServiceConnection' # Replace with your service connection name
+              repository: '$(ACR_NAME).azurecr.io/contract-chat-frontend'
+              dockerfile: 'frontend/Dockerfile'
+              buildContext: 'frontend'
+              tags: |
+                $(imageTag)
+              arguments: '--build-arg VITE_API_URL=$(VITE_API_URL)'
+
+  - stage: Deploy
+    displayName: Deploy to Azure Web App
+    dependsOn: BuildAndPush
+    jobs:
+      - deployment: DeployWebApp
+        displayName: Deploy multi-container to App Service
+        environment: production
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: AzureCLI@2
+                  displayName: Deploy/update App Service with docker-compose
+                  inputs:
+                    azureSubscription: 'AzureServiceConnection' # Replace with your Azure RM service connection name
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -e
+                      echo "Using ACR: $(ACR_NAME)"
+                      ACR_LOGIN_SERVER=$(az acr show -n $(ACR_NAME) --query loginServer -o tsv)
+                      echo "ACR login server: $ACR_LOGIN_SERVER"
+                      ACR_USER=$(az acr credential show -n $(ACR_NAME) --query username -o tsv)
+                      ACR_PWD=$(az acr credential show -n $(ACR_NAME) --query passwords[0].value -o tsv)
+
+                      # Create resource group / app service plan / webapp if they don't exist (idempotent)
+                      az group create -n $(RESOURCE_GROUP) -l eastus || true
+                      az appservice plan create --name $(APP_SERVICE_PLAN) --resource-group $(RESOURCE_GROUP) --is-linux --sku S1 || true
+
+                      # Create webapp if not exists (this will fail harmlessly if exists)
+                      az webapp create --resource-group $(RESOURCE_GROUP) --plan $(APP_SERVICE_PLAN) --name $(WEBAPP_NAME) --multicontainer-config-type compose --multicontainer-config-file ./docker-compose.yml || true
+
+                      # Set the container configuration using docker-compose and provide ACR credentials
+                      az webapp config container set --resource-group $(RESOURCE_GROUP) --name $(WEBAPP_NAME) \
+                        --multicontainer-config-type compose --multicontainer-config-file ./docker-compose.yml \
+                        --docker-registry-server-url https://$ACR_LOGIN_SERVER --docker-registry-server-user $ACR_USER --docker-registry-server-password $ACR_PWD
+
+                      echo "Deployment finished."

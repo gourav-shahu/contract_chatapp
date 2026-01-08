@@ -1,0 +1,11 @@
+.env
+*.env
+venv/
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+.DS_Store
+uploads/
+chat_app.db

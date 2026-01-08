@@ -1,0 +1,16 @@
+# Root dockerignore
+**/__pycache__
+**/.pytest_cache
+**/venv
+**/node_modules
+**/.env
+**/.env.local
+.git
+.gitignore
+.DS_Store
+docker-compose.yml
+*.pyc
+*.pyo
+*.pyd
+build
+dist
