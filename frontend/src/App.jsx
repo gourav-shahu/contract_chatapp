@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
-// import { PublicClientApplication, InteractionStatus } from "@azure/msal-browser"; 
-// import { useIsAuthenticated, useMsal } from "@azure/msal-react"; 
+// --- RESTORED REAL IMPORTS ---
+import { InteractionStatus } from "@azure/msal-browser"; 
+import { useIsAuthenticated, useMsal } from "@azure/msal-react"; 
+import { loginRequest } from "./authConfig";
 import axios from "axios";
 import { 
   LayoutDashboard, 
   Upload as UploadIcon, 
   MessageSquare, 
-  Settings, 
-  HelpCircle, 
-  Plus, 
   Search, 
   FileText, 
   ArrowUp, 
@@ -19,17 +18,22 @@ import {
   X
 } from "lucide-react";
 
-// --- LOGIN COMPONENT (MOCK) ---
-const LoginScreen = ({ onLogin }) => {
-  const [isLoading, setIsLoading] = useState(false);
+// --- 1. LOGIN SCREEN (REAL AZURE SSO) ---
+const LoginScreen = () => {
+  const { instance, inProgress } = useMsal();
 
   const handleLogin = async () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      onLogin(); 
-      setIsLoading(false);
-    }, 800);
+    // Prevent crash if interaction is already happening
+    if (inProgress !== InteractionStatus.None) return;
+
+    try {
+      await instance.loginRedirect(loginRequest);
+    } catch (e) {
+      console.error("Login failed:", e);
+    }
   };
+
+  const isLoading = inProgress !== InteractionStatus.None;
 
   return (
     <div className="flex h-screen w-full bg-gray-50">
@@ -48,16 +52,21 @@ const LoginScreen = ({ onLogin }) => {
         <div className="w-full max-w-md space-y-8">
           <div className="text-center lg:text-left">
             <h2 className="text-3xl font-bold text-gray-900">Welcome back</h2>
-            <p className="mt-2 text-gray-500">Sign in to your corporate account (Dev Mode)</p>
+            <p className="mt-2 text-gray-500">Sign in to your corporate account</p>
           </div>
           <div className="mt-8 space-y-6">
             <button
               onClick={handleLogin}
               disabled={isLoading}
-              className={`w-full flex items-center justify-center gap-3 px-4 py-4 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors ${isLoading ? "opacity-50" : ""}`}
+              className={`w-full flex items-center justify-center gap-3 px-4 py-4 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              {isLoading ? <span>Signing in...</span> : "Sign in with Microsoft Azure"}
+              {isLoading ? (
+                <span className="flex items-center gap-2"><Loader2 className="animate-spin" size={16}/> Redirecting to Microsoft...</span>
+              ) : (
+                "Sign in with Microsoft Azure"
+              )}
             </button>
+            <p className="text-xs text-center text-gray-400">Secured by Azure Active Directory</p>
           </div>
         </div>
       </div>
@@ -65,7 +74,7 @@ const LoginScreen = ({ onLogin }) => {
   );
 };
 
-// --- SIDEBAR ---
+// --- 2. SIDEBAR NAVIGATION ---
 const Sidebar = ({ activeTab, setActiveTab, onLogout }) => (
   <div className="w-64 bg-white border-r border-gray-200 flex flex-col h-full font-sans">
     <div className="p-6">
@@ -78,7 +87,7 @@ const Sidebar = ({ activeTab, setActiveTab, onLogout }) => (
       <NavItem icon={<MessageSquare size={20} />} label="Chat" active={activeTab === "chat"} onClick={() => setActiveTab("chat")} />
     </nav>
     <div className="p-4 mt-auto border-t border-gray-100">
-      <button onClick={onLogout} className="w-full flex items-center px-4 py-3 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50">
+      <button onClick={onLogout} className="w-full flex items-center px-4 py-3 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 transition-colors">
         <LogOut size={18} className="mr-3" /> Logout
       </button>
     </div>
@@ -94,7 +103,7 @@ const NavItem = ({ icon, label, active, onClick }) => (
   </button>
 );
 
-// --- HELPER COMPONENTS ---
+// --- 3. HELPER COMPONENTS ---
 const ContractListPanel = ({ documents, selectedDocId, onSelect, searchTerm, setSearchTerm }) => (
   <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full">
     <div className="p-5 border-b border-gray-100">
@@ -129,7 +138,7 @@ const ContractListPanel = ({ documents, selectedDocId, onSelect, searchTerm, set
   </div>
 );
 
-// --- CHAT SCREEN ---
+// --- 4. CHAT SCREEN ---
 const ChatScreen = ({ documents, selectedDocId, setSelectedDocId }) => {
   const [chatHistory, setChatHistory] = useState([]);
   const [inputMsg, setInputMsg] = useState("");
@@ -229,9 +238,9 @@ const ChatScreen = ({ documents, selectedDocId, setSelectedDocId }) => {
   );
 };
 
-// --- UPLOAD SCREEN (MULTI-FILE UPDATE) ---
+// --- 5. UPLOAD SCREEN ---
 const UploadScreen = ({ documents, fetchDocuments }) => {
-  const [files, setFiles] = useState([]); // Changed to array
+  const [files, setFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
 
   const handleFileChange = (e) => {
@@ -249,16 +258,15 @@ const UploadScreen = ({ documents, fetchDocuments }) => {
     setIsUploading(true);
 
     const formData = new FormData();
-    // Append all files to formData with the same key 'files'
     files.forEach((file) => {
       formData.append("files", file);
     });
 
     try {
       await axios.post("http://localhost:8000/upload", formData);
-      setFiles([]); // Clear list
+      setFiles([]); 
       fetchDocuments();
-      alert("All files uploaded successfully!");
+      alert("All files uploaded successfully to Unity Catalog!");
     } catch (e) {
       console.error(e);
       alert("Upload failed.");
@@ -271,49 +279,32 @@ const UploadScreen = ({ documents, fetchDocuments }) => {
     <div className="flex-1 p-10 bg-gray-50 h-screen overflow-y-auto">
       <div className="max-w-5xl mx-auto">
           <h2 className="text-2xl font-bold text-gray-800 mb-8">Document Management</h2>
-          
-          {/* Upload Area */}
           <div className="bg-white p-8 rounded-2xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center mb-10 hover:border-blue-400 transition-colors">
               <UploadIcon size={32} className="text-blue-600 mb-4" />
               <p className="text-sm text-gray-500 mb-4">Drag & drop or click to select multiple files</p>
               
-              <input 
-                type="file" 
-                multiple // ALLOW MULTIPLE
-                onChange={handleFileChange} 
-                className="hidden" 
-                id="file-upload" 
-              />
+              <input type="file" multiple onChange={handleFileChange} className="hidden" id="file-upload" />
               <label htmlFor="file-upload" className="cursor-pointer bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-medium hover:bg-blue-100 mb-4">
                 Browse Files
               </label>
 
-              {/* Selected Files Preview */}
               {files.length > 0 && (
                 <div className="w-full max-w-lg space-y-2 mb-4">
                   {files.map((f, i) => (
                     <div key={i} className="flex items-center justify-between bg-gray-50 p-2 rounded text-sm">
-                      <span className="truncate">{f.name}</span>
-                      <button onClick={() => removeFile(i)} className="text-red-500 hover:text-red-700">
-                        <X size={16} />
-                      </button>
+                      <span className="truncate text-gray-700">{f.name}</span>
+                      <button onClick={() => removeFile(i)} className="text-red-500 hover:text-red-700"><X size={16} /></button>
                     </div>
                   ))}
                 </div>
               )}
 
               {files.length > 0 && (
-                <button 
-                  onClick={handleUpload} 
-                  disabled={isUploading}
-                  className={`bg-blue-600 text-white px-6 py-2 rounded-lg font-medium ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}
-                >
-                  {isUploading ? "Uploading..." : `Upload ${files.length} File(s)`}
+                <button onClick={handleUpload} disabled={isUploading} className={`bg-blue-600 text-white px-6 py-2 rounded-lg font-medium ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}>
+                  {isUploading ? "Uploading to Cloud..." : `Upload ${files.length} File(s)`}
                 </button>
               )}
           </div>
-
-          {/* Table */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <table className="w-full text-left text-sm text-gray-600">
                   <thead className="bg-gray-50 text-xs uppercase font-medium text-gray-500">
@@ -321,7 +312,7 @@ const UploadScreen = ({ documents, fetchDocuments }) => {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                       {documents.map((doc) => (
-                          <tr key={doc.id}><td className="px-6 py-4">{doc.filename}</td><td className="px-6 py-4">Today</td></tr>
+                          <tr key={doc.id}><td className="px-6 py-4 flex items-center gap-2"><FileText size={16} className="text-blue-500"/> {doc.filename}</td><td className="px-6 py-4">Today</td></tr>
                       ))}
                   </tbody>
               </table>
@@ -331,12 +322,19 @@ const UploadScreen = ({ documents, fetchDocuments }) => {
   );
 };
 
-// --- APP WRAPPER ---
-const AuthenticatedApp = ({ onLogout }) => {
+// --- 6. AUTHENTICATED APP WRAPPER ---
+const AuthenticatedApp = () => {
+  const { instance } = useMsal();
   const [activeTab, setActiveTab] = useState("chat");
   const [documents, setDocuments] = useState([]);
   const [selectedDocId, setSelectedDocId] = useState(null);
 
+  // Logout Function
+  const handleLogout = () => {
+    instance.logoutRedirect().catch(e => console.error(e));
+  };
+
+  // Fetch Docs
   const fetchDocuments = async () => {
     try {
       const res = await axios.get("http://localhost:8000/documents");
@@ -349,7 +347,7 @@ const AuthenticatedApp = ({ onLogout }) => {
 
   return (
     <div className="flex h-screen bg-white font-sans text-gray-900">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={onLogout} />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
       {activeTab === "chat" && <ChatScreen documents={documents} selectedDocId={selectedDocId} setSelectedDocId={setSelectedDocId} />}
       {activeTab === "upload" && <UploadScreen documents={documents} fetchDocuments={fetchDocuments} />}
       {activeTab === "all" && <div className="flex-1 flex items-center justify-center text-gray-400 bg-gray-50">Dashboard view (Placeholder)</div>}
@@ -357,9 +355,12 @@ const AuthenticatedApp = ({ onLogout }) => {
   );
 };
 
+// --- 7. MAIN APP (WITH REAL AZURE AUTH) ---
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  return isLoggedIn ? <AuthenticatedApp onLogout={() => setIsLoggedIn(false)} /> : <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
+  const isAuthenticated = useIsAuthenticated();
+
+  // If Azure says "Authenticated", show App. Else, show Login.
+  return isAuthenticated ? <AuthenticatedApp /> : <LoginScreen />;
 }
 
 export default App;
