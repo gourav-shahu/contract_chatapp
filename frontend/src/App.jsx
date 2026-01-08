@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-// --- RESTORED REAL IMPORTS ---
 import { InteractionStatus } from "@azure/msal-browser"; 
 import { useIsAuthenticated, useMsal } from "@azure/msal-react"; 
 import { loginRequest } from "./authConfig";
@@ -18,18 +17,27 @@ import {
   X
 } from "lucide-react";
 
-// --- 1. LOGIN SCREEN (REAL AZURE SSO) ---
+// --- 1. LOGIN SCREEN (UPDATED FOR POPUP) ---
 const LoginScreen = () => {
   const { instance, inProgress } = useMsal();
 
   const handleLogin = async () => {
-    // Prevent crash if interaction is already happening
-    if (inProgress !== InteractionStatus.None) return;
+    console.log("Login button clicked..."); // DEBUG LOG
+    console.log("Current MSAL Status:", inProgress); // DEBUG LOG
+
+    // If MSAL is already busy, don't try to open another popup
+    if (inProgress !== InteractionStatus.None) {
+        console.warn("MSAL is currently busy. Cannot start login.");
+        return;
+    }
 
     try {
-      await instance.loginRedirect(loginRequest);
+      // CHANGED FROM loginRedirect TO loginPopup
+      await instance.loginPopup(loginRequest);
+      console.log("Login success!");
     } catch (e) {
       console.error("Login failed:", e);
+      alert("Login failed. Check console for details.");
     }
   };
 
@@ -61,7 +69,7 @@ const LoginScreen = () => {
               className={`w-full flex items-center justify-center gap-3 px-4 py-4 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {isLoading ? (
-                <span className="flex items-center gap-2"><Loader2 className="animate-spin" size={16}/> Redirecting to Microsoft...</span>
+                <span className="flex items-center gap-2"><Loader2 className="animate-spin" size={16}/> Connecting...</span>
               ) : (
                 "Sign in with Microsoft Azure"
               )}
@@ -329,12 +337,11 @@ const AuthenticatedApp = () => {
   const [documents, setDocuments] = useState([]);
   const [selectedDocId, setSelectedDocId] = useState(null);
 
-  // Logout Function
   const handleLogout = () => {
-    instance.logoutRedirect().catch(e => console.error(e));
+    // CHANGED TO LOGOUT POPUP (Better for preventing full page refresh loops)
+    instance.logoutPopup().catch(e => console.error(e));
   };
 
-  // Fetch Docs
   const fetchDocuments = async () => {
     try {
       const res = await axios.get("http://localhost:8000/documents");
@@ -355,11 +362,11 @@ const AuthenticatedApp = () => {
   );
 };
 
-// --- 7. MAIN APP (WITH REAL AZURE AUTH) ---
+// --- 7. MAIN APP ---
 function App() {
   const isAuthenticated = useIsAuthenticated();
 
-  // If Azure says "Authenticated", show App. Else, show Login.
+  // If authenticated, show App. Else, show Login.
   return isAuthenticated ? <AuthenticatedApp /> : <LoginScreen />;
 }
 
